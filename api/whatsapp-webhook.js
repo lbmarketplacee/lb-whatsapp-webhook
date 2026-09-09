@@ -15,7 +15,7 @@ export default async function handler(req, res) {
   if (!verifyToken) return res.status(500).json({ erro: 'Verify Token não configurado.' });
 
   // ===== ROTA: Troca code por access_token (vem do Embedded Signup) =====
-  if (req.url === '/api/whatsapp-exchange-token' && req.method === 'POST') {
+  if (req.method === 'POST' && req.body?.code) {
     try {
       const { code, user_id } = req.body || {};
       if (!code || !user_id) return res.status(400).json({ erro: 'code e user_id são obrigatórios.' });
