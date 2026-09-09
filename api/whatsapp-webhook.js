@@ -17,21 +17,20 @@ export default async function handler(req, res) {
   // ===== ROTA: Troca code por access_token (vem do Embedded Signup) =====
   if (req.method === 'POST' && req.body?.code) {
     try {
-      const { code, user_id } = req.body || {};
-      if (!code || !user_id) return res.status(400).json({ erro: 'code e user_id são obrigatórios.' });
+      const { code } = req.body || {};
+      if (!code) return res.status(400).json({ erro: 'code é obrigatório.' });
 
       const appId = process.env.FACEBOOK_APP_ID;
       const appSecret = process.env.FACEBOOK_APP_SECRET;
-      const redirectUri = 'https://lb-marketplace.vercel.app/whatsapp-callback';
 
       if (!appId || !appSecret) {
         return res.status(500).json({ erro: 'Credenciais do Facebook não configuradas.' });
       }
 
-      // 1) Trocar code por short-lived token
+      // 1) Trocar code por short-lived token (fluxo via SDK do JavaScript não usa redirect_uri)
       const tokenResp = await fetch(
         `https://graph.facebook.com/v20.0/oauth/access_token?` +
-        `client_id=${appId}&client_secret=${appSecret}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${code}`,
+        `client_id=${appId}&client_secret=${appSecret}&code=${code}`,
         { method: 'GET' }
       );
 
