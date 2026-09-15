@@ -1,0 +1,9 @@
+{
+  "name": "lb-whatsapp-webhook",
+  "version": "1.0.0",
+  "description": "Webhook WhatsApp Business API + LBIA automática - LB Marketplace",
+  "private": true,
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  }
+}
