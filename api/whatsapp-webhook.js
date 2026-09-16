@@ -1,10 +1,10 @@
 // Webhook do WhatsApp Business API + Embedded Signup (Meta) — LB Marketplace
 // Variáveis de ambiente na Vercel:
-//   WHATSAPP_VERIFY_TOKEN
-//   FACEBOOK_APP_ID
-//   FACEBOOK_APP_SECRET
-//   FIREBASE_SERVICE_ACCOUNT
-//   OPENAI_API_KEY
+// WHATSAPP_VERIFY_TOKEN
+// FACEBOOK_APP_ID
+// FACEBOOK_APP_SECRET
+// FIREBASE_SERVICE_ACCOUNT
+// OPENAI_API_KEY
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
@@ -86,20 +86,196 @@ async function enviarMensagemWhatsApp(
 
   if (!resp.ok) {
     const erro = await resp.text();
-    console.error('Erro ao enviar mensagem WhatsApp:', erro);
+    console.error(
+      'Erro ao enviar mensagem WhatsApp:',
+      erro
+    );
   }
 }
 
+// =========================================================
+// TROCA DO CODE DO EMBEDDED SIGNUP
+// =========================================================
+
+async function trocarCodePorToken(code, appId, appSecret) {
+
+  // URLs que estão cadastradas no Meta
+  const redirectUris = [
+    'https://sistema.lbmarketplace.com.br/whatsapp-callback.html',
+    'https://sistema.lbmarketplace.com.br/'
+  ];
+
+  let ultimoErro = null;
+
+  // -------------------------------------------------------
+  // PRIMEIRA TENTATIVA:
+  // POST SEM REDIRECT_URI
+  // -------------------------------------------------------
+
+  try {
+    console.log(
+      'Tentativa 1: troca do code sem redirect_uri'
+    );
+
+    const params = new URLSearchParams({
+      client_id: appId,
+      client_secret: appSecret,
+      code: code
+    });
+
+    const response = await fetch(
+      'https://graph.facebook.com/v23.0/oauth/access_token',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type':
+            'application/x-www-form-urlencoded'
+        },
+        body: params.toString()
+      }
+    );
+
+    const texto = await response.text();
+
+    console.log(
+      'Resposta tentativa 1:',
+      texto
+    );
+
+    if (response.ok) {
+      try {
+        const dados = JSON.parse(texto);
+
+        if (dados.access_token) {
+          return {
+            sucesso: true,
+            dados
+          };
+        }
+      } catch (e) {
+        console.error(
+          'Resposta da tentativa 1 não é JSON.'
+        );
+      }
+    }
+
+    ultimoErro = texto;
+
+  } catch (erro) {
+    console.error(
+      'Erro tentativa 1:',
+      erro
+    );
+
+    ultimoErro = erro.message;
+  }
+
+  // -------------------------------------------------------
+  // SEGUNDA E TERCEIRA TENTATIVA:
+  // COM AS DUAS REDIRECT URIS CADASTRADAS
+  // -------------------------------------------------------
+
+  for (const redirectUri of redirectUris) {
+
+    try {
+
+      console.log(
+        'Tentando redirect_uri:',
+        redirectUri
+      );
+
+      const params = new URLSearchParams({
+        client_id: appId,
+        client_secret: appSecret,
+        code: code,
+        redirect_uri: redirectUri
+      });
+
+      const response = await fetch(
+        'https://graph.facebook.com/v23.0/oauth/access_token',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type':
+              'application/x-www-form-urlencoded'
+          },
+          body: params.toString()
+        }
+      );
+
+      const texto = await response.text();
+
+      console.log(
+        'Resposta para',
+        redirectUri,
+        ':',
+        texto
+      );
+
+      if (response.ok) {
+
+        try {
+
+          const dados = JSON.parse(texto);
+
+          if (dados.access_token) {
+
+            console.log(
+              'CODE TROCAD0 COM SUCESSO USANDO:',
+              redirectUri
+            );
+
+            return {
+              sucesso: true,
+              dados
+            };
+          }
+
+        } catch (e) {
+
+          console.error(
+            'Resposta não é JSON:',
+            texto
+          );
+        }
+      }
+
+      ultimoErro = texto;
+
+    } catch (erro) {
+
+      console.error(
+        'Erro tentando',
+        redirectUri,
+        erro
+      );
+
+      ultimoErro = erro.message;
+    }
+  }
+
+  return {
+    sucesso: false,
+    erro: ultimoErro
+  };
+}
+
 export default async function handler(req, res) {
+
   // =========================================================
   // CORS
   // =========================================================
 
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader(
+    'Access-Control-Allow-Origin',
+    '*'
+  );
+
   res.setHeader(
     'Access-Control-Allow-Methods',
     'POST, GET, OPTIONS'
   );
+
   res.setHeader(
     'Access-Control-Allow-Headers',
     'Content-Type'
@@ -113,7 +289,8 @@ export default async function handler(req, res) {
   // VERIFY TOKEN
   // =========================================================
 
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+  const verifyToken =
+    process.env.WHATSAPP_VERIFY_TOKEN;
 
   if (!verifyToken) {
     return res.status(500).json({
@@ -122,34 +299,45 @@ export default async function handler(req, res) {
   }
 
   // =========================================================
-  // AÇÃO: ENVIAR MENSAGEM MANUAL
+  // ENVIO MANUAL DE MENSAGEM
   // =========================================================
 
   if (
     req.method === 'POST' &&
     req.body?.acao === 'enviar_mensagem'
   ) {
+
     try {
-      const { telefone, texto } = req.body;
+
+      const {
+        telefone,
+        texto
+      } = req.body;
 
       if (!telefone || !texto) {
+
         return res.status(400).json({
-          erro: 'telefone e texto são obrigatórios.'
+          erro:
+            'telefone e texto são obrigatórios.'
         });
       }
 
-      const configSnap = await db
-        .collection('configuracoes')
-        .doc('whatsapp')
-        .get();
+      const configSnap =
+        await db
+          .collection('configuracoes')
+          .doc('whatsapp')
+          .get();
 
       if (!configSnap.exists) {
+
         return res.status(400).json({
-          erro: 'WhatsApp não conectado.'
+          erro:
+            'WhatsApp não conectado.'
         });
       }
 
-      const config = configSnap.data();
+      const config =
+        configSnap.data();
 
       await enviarMensagemWhatsApp(
         telefone,
@@ -158,19 +346,25 @@ export default async function handler(req, res) {
         config.phone_number_id
       );
 
-      const convRef = db
-        .collection('whatsappConversas')
-        .doc(telefone);
+      const convRef =
+        db
+          .collection('whatsappConversas')
+          .doc(telefone);
 
       await convRef.set(
         {
           modo: 'humano',
-          mensagens: FieldValue.arrayUnion({
-            de: 'equipe',
-            texto,
-            em: new Date().toISOString()
-          }),
-          ultimaMensagemEm: FieldValue.serverTimestamp()
+
+          mensagens:
+            FieldValue.arrayUnion({
+              de: 'equipe',
+              texto,
+              em:
+                new Date().toISOString()
+            }),
+
+          ultimaMensagemEm:
+            FieldValue.serverTimestamp()
         },
         {
           merge: true
@@ -182,6 +376,7 @@ export default async function handler(req, res) {
       });
 
     } catch (e) {
+
       console.error(e);
 
       return res.status(500).json({
@@ -191,19 +386,26 @@ export default async function handler(req, res) {
   }
 
   // =========================================================
-  // AÇÃO: DEFINIR MODO DA CONVERSA
+  // DEFINIR MODO
   // =========================================================
 
   if (
     req.method === 'POST' &&
     req.body?.acao === 'definir_modo'
   ) {
+
     try {
-      const { telefone, modo } = req.body;
+
+      const {
+        telefone,
+        modo
+      } = req.body;
 
       if (!telefone || !modo) {
+
         return res.status(400).json({
-          erro: 'telefone e modo são obrigatórios.'
+          erro:
+            'telefone e modo são obrigatórios.'
         });
       }
 
@@ -224,6 +426,7 @@ export default async function handler(req, res) {
       });
 
     } catch (e) {
+
       return res.status(500).json({
         erro: e.message
       });
@@ -232,214 +435,274 @@ export default async function handler(req, res) {
 
   // =========================================================
   // EMBEDDED SIGNUP
-  // TROCAR CODE POR ACCESS TOKEN
   // =========================================================
 
   if (
     req.method === 'POST' &&
     req.body?.code
   ) {
+
     try {
-      const { code } = req.body;
+
+      const {
+        code
+      } = req.body;
 
       if (!code) {
+
         return res.status(400).json({
-          erro: 'code é obrigatório.'
+          erro:
+            'code é obrigatório.'
         });
       }
 
-      const appId = process.env.FACEBOOK_APP_ID;
-      const appSecret = process.env.FACEBOOK_APP_SECRET;
+      const appId =
+        process.env.FACEBOOK_APP_ID;
+
+      const appSecret =
+        process.env.FACEBOOK_APP_SECRET;
 
       if (!appId || !appSecret) {
+
         return res.status(500).json({
-          erro: 'Credenciais do Facebook não configuradas.'
-        });
-      }
-
-      // URL usada pelo fluxo do Facebook Login / Embedded Signup.
-      // Deve ser exatamente a mesma URL configurada no Meta.
-      const redirectUri =
-        'https://sistema.lbmarketplace.com.br/';
-
-      // =====================================================
-      // 1. TROCAR CODE POR ACCESS TOKEN
-      // =====================================================
-
-      const tokenParams = new URLSearchParams({
-        client_id: appId,
-        client_secret: appSecret,
-        code: code,
-        redirect_uri: redirectUri
-      });
-
-      const tokenResp = await fetch(
-        'https://graph.facebook.com/v23.0/oauth/access_token',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type':
-              'application/x-www-form-urlencoded'
-          },
-          body: tokenParams.toString()
-        }
-      );
-
-      const tokenText = await tokenResp.text();
-
-      if (!tokenResp.ok) {
-        console.error(
-          'Erro ao trocar code por token:',
-          tokenText
-        );
-
-        return res.status(400).json({
-          erro: 'Falha ao trocar o código por token.',
-          detalhe: tokenText
-        });
-      }
-
-      let tokenData;
-
-      try {
-        tokenData = JSON.parse(tokenText);
-      } catch (e) {
-        console.error(
-          'Resposta da Meta não é JSON:',
-          tokenText
-        );
-
-        return res.status(400).json({
-          erro: 'Resposta inválida da Meta.',
-          detalhe: tokenText
-        });
-      }
-
-      const businessToken = tokenData.access_token;
-
-      if (!businessToken) {
-        return res.status(400).json({
-          erro: 'Nenhum token recebido da Meta.',
-          detalhe: tokenData
+          erro:
+            'Credenciais do Facebook não configuradas.'
         });
       }
 
       console.log(
-        'Token recebido com sucesso pelo Embedded Signup.'
+        '======================================'
       );
 
-      // =====================================================
-      // 2. BUSCAR DADOS DA CONTA
-      // =====================================================
-
-      const meResp = await fetch(
-        `https://graph.facebook.com/v23.0/me?fields=id,name,email,whatsapp_business_accounts&access_token=${encodeURIComponent(
-          businessToken
-        )}`
+      console.log(
+        'EMBEDDED SIGNUP RECEBIDO'
       );
 
-      const meText = await meResp.text();
+      console.log(
+        'App ID:',
+        appId
+      );
+
+      console.log(
+        'Code recebido:',
+        code ? 'SIM' : 'NÃO'
+      );
+
+      console.log(
+        '======================================'
+      );
+
+      // -----------------------------------------------------
+      // TROCAR CODE POR TOKEN
+      // -----------------------------------------------------
+
+      const resultado =
+        await trocarCodePorToken(
+          code,
+          appId,
+          appSecret
+        );
+
+      if (!resultado.sucesso) {
+
+        console.error(
+          'TODAS AS TENTATIVAS DE TOKEN FALHARAM:'
+        );
+
+        console.error(
+          resultado.erro
+        );
+
+        return res.status(400).json({
+          erro:
+            'Falha ao trocar o código por token.',
+
+          detalhe:
+            resultado.erro,
+
+          tentativas: [
+            'sem redirect_uri',
+            'https://sistema.lbmarketplace.com.br/whatsapp-callback.html',
+            'https://sistema.lbmarketplace.com.br/'
+          ]
+        });
+      }
+
+      const tokenData =
+        resultado.dados;
+
+      const businessToken =
+        tokenData.access_token;
+
+      if (!businessToken) {
+
+        return res.status(400).json({
+          erro:
+            'Nenhum token recebido da Meta.',
+
+          detalhe:
+            tokenData
+        });
+      }
+
+      console.log(
+        'TOKEN RECEBIDO COM SUCESSO.'
+      );
+
+      // -----------------------------------------------------
+      // BUSCAR DADOS DA CONTA
+      // -----------------------------------------------------
+
+      const meResp =
+        await fetch(
+          `https://graph.facebook.com/v23.0/me?fields=id,name,email,whatsapp_business_accounts&access_token=${encodeURIComponent(
+            businessToken
+          )}`
+        );
+
+      const meText =
+        await meResp.text();
 
       if (!meResp.ok) {
+
         console.error(
           'Erro ao buscar dados da conta:',
           meText
         );
 
         return res.status(400).json({
-          erro: 'Falha ao buscar dados da conta WhatsApp.',
-          detalhe: meText
+          erro:
+            'Falha ao buscar dados da conta WhatsApp.',
+
+          detalhe:
+            meText
         });
       }
 
       let meData;
 
       try {
-        meData = JSON.parse(meText);
+
+        meData =
+          JSON.parse(meText);
+
       } catch (e) {
+
         return res.status(400).json({
-          erro: 'Resposta inválida ao buscar dados da conta.',
-          detalhe: meText
+          erro:
+            'Resposta inválida da Meta.',
+
+          detalhe:
+            meText
         });
       }
 
-      // =====================================================
-      // 3. ENCONTRAR WABA
-      // =====================================================
+      // -----------------------------------------------------
+      // ENCONTRAR WABA
+      // -----------------------------------------------------
 
       const wabaList =
-        meData.whatsapp_business_accounts?.data || [];
+        meData
+          .whatsapp_business_accounts
+          ?.data || [];
 
       if (!wabaList.length) {
+
         return res.status(400).json({
-          erro: 'Nenhuma conta WhatsApp Business encontrada.',
-          detalhe: meData
+          erro:
+            'Nenhuma conta WhatsApp Business encontrada.',
+
+          detalhe:
+            meData
         });
       }
 
-      const waba = wabaList[0];
-      const wabaId = waba.id;
+      const waba =
+        wabaList[0];
+
+      const wabaId =
+        waba.id;
 
       console.log(
         'WABA encontrada:',
         wabaId
       );
 
-      // =====================================================
-      // 4. BUSCAR NÚMEROS DA WABA
-      // =====================================================
+      // -----------------------------------------------------
+      // BUSCAR NÚMEROS
+      // -----------------------------------------------------
 
-      const wabaDetailsResp = await fetch(
-        `https://graph.facebook.com/v23.0/${wabaId}?fields=id,name,phone_numbers&access_token=${encodeURIComponent(
-          businessToken
-        )}`
-      );
+      const wabaDetailsResp =
+        await fetch(
+          `https://graph.facebook.com/v23.0/${wabaId}?fields=id,name,phone_numbers&access_token=${encodeURIComponent(
+            businessToken
+          )}`
+        );
 
       const wabaDetailsText =
         await wabaDetailsResp.text();
 
       if (!wabaDetailsResp.ok) {
+
         console.error(
           'Erro ao buscar detalhes da WABA:',
           wabaDetailsText
         );
 
         return res.status(400).json({
-          erro: 'Falha ao buscar detalhes da conta.',
-          detalhe: wabaDetailsText
+          erro:
+            'Falha ao buscar detalhes da conta.',
+
+          detalhe:
+            wabaDetailsText
         });
       }
 
       let wabaDetails;
 
       try {
-        wabaDetails = JSON.parse(
-          wabaDetailsText
-        );
+
+        wabaDetails =
+          JSON.parse(
+            wabaDetailsText
+          );
+
       } catch (e) {
+
         return res.status(400).json({
-          erro: 'Resposta inválida ao buscar detalhes da WABA.',
-          detalhe: wabaDetailsText
+          erro:
+            'Resposta inválida ao buscar detalhes da WABA.',
+
+          detalhe:
+            wabaDetailsText
         });
       }
 
       const phoneNumbers =
-        wabaDetails.phone_numbers?.data || [];
+        wabaDetails
+          .phone_numbers
+          ?.data || [];
 
       if (!phoneNumbers.length) {
+
         return res.status(400).json({
-          erro: 'Nenhum número de telefone encontrado.',
-          detalhe: wabaDetails
+          erro:
+            'Nenhum número de telefone encontrado.',
+
+          detalhe:
+            wabaDetails
         });
       }
 
-      // =====================================================
-      // 5. PEGAR O PRIMEIRO NÚMERO
-      // =====================================================
+      // -----------------------------------------------------
+      // PEGAR NÚMERO
+      // -----------------------------------------------------
 
-      const phone = phoneNumbers[0];
+      const phone =
+        phoneNumbers[0];
 
-      const phoneNumberId = phone.id;
+      const phoneNumberId =
+        phone.id;
 
       const phoneNumber =
         phone.phone_number ||
@@ -456,29 +719,44 @@ export default async function handler(req, res) {
         phoneNumber
       );
 
-      // =====================================================
-      // 6. RETORNAR DADOS PARA O FRONTEND
-      // =====================================================
+      // -----------------------------------------------------
+      // RETORNAR PARA FRONTEND
+      // -----------------------------------------------------
 
       return res.status(200).json({
+
         ok: true,
-        waba_id: wabaId,
-        phone_number_id: phoneNumberId,
-        phone_number: phoneNumber,
-        access_token: businessToken,
-        message: 'Token gerado com sucesso!'
+
+        waba_id:
+          wabaId,
+
+        phone_number_id:
+          phoneNumberId,
+
+        phone_number:
+          phoneNumber,
+
+        access_token:
+          businessToken,
+
+        message:
+          'Token gerado com sucesso!'
       });
 
     } catch (e) {
+
       console.error(
         'Erro no Embedded Signup:',
         e
       );
 
       return res.status(500).json({
+
         erro:
           'Erro interno: ' +
-          (e.message || 'desconhecido'),
+          (e.message ||
+            'desconhecido'),
+
         detalhe:
           e.stack || null
       });
@@ -490,9 +768,13 @@ export default async function handler(req, res) {
   // =========================================================
 
   if (req.method === 'GET') {
-    const modo = req.query['hub.mode'];
+
+    const modo =
+      req.query['hub.mode'];
+
     const tokenRecebido =
       req.query['hub.verify_token'];
+
     const desafio =
       req.query['hub.challenge'];
 
@@ -500,6 +782,7 @@ export default async function handler(req, res) {
       modo === 'subscribe' &&
       tokenRecebido === verifyToken
     ) {
+
       console.log(
         'Webhook do WhatsApp verificado com sucesso.'
       );
@@ -521,72 +804,82 @@ export default async function handler(req, res) {
   // =========================================================
 
   if (req.method === 'POST') {
+
     try {
-      const corpo = req.body;
+
+      const corpo =
+        req.body;
 
       const valor =
-        corpo?.entry?.[0]?.changes?.[0]?.value;
+        corpo
+          ?.entry?.[0]
+          ?.changes?.[0]
+          ?.value;
 
       const mensagemRecebida =
         valor?.messages?.[0];
 
-      // Se não for mensagem de texto,
-      // apenas confirma recebimento.
       if (
         !mensagemRecebida ||
         mensagemRecebida.type !== 'text'
       ) {
+
         return res
           .status(200)
-          .send('EVENT_RECEIVED');
+          .send(
+            'EVENT_RECEIVED'
+          );
       }
 
       const telefone =
         mensagemRecebida.from;
 
       const textoRecebido =
-        mensagemRecebida.text?.body || '';
+        mensagemRecebida.text?.body ||
+        '';
 
-      // =====================================================
-      // BUSCAR CONFIGURAÇÃO DO WHATSAPP
-      // =====================================================
+      // -----------------------------------------------------
+      // CONFIGURAÇÃO WHATSAPP
+      // -----------------------------------------------------
 
-      const configSnap = await db
-        .collection('configuracoes')
-        .doc('whatsapp')
-        .get();
+      const configSnap =
+        await db
+          .collection('configuracoes')
+          .doc('whatsapp')
+          .get();
 
       if (!configSnap.exists) {
+
         return res
           .status(200)
-          .send('EVENT_RECEIVED');
+          .send(
+            'EVENT_RECEIVED'
+          );
       }
 
       const config =
         configSnap.data();
 
-      // =====================================================
-      // BUSCAR OU CRIAR CONVERSA
-      // =====================================================
+      // -----------------------------------------------------
+      // CONVERSA
+      // -----------------------------------------------------
 
-      const convRef = db
-        .collection('whatsappConversas')
-        .doc(telefone);
+      const convRef =
+        db
+          .collection('whatsappConversas')
+          .doc(telefone);
 
       const convSnap =
         await convRef.get();
 
-      const conversa = convSnap.exists
-        ? convSnap.data()
-        : {
-            modo: 'auto',
-            mensagens: [],
-            telefone
-          };
-
-      // =====================================================
-      // SALVAR MENSAGEM RECEBIDA
-      // =====================================================
+      const conversa =
+        convSnap.exists
+          ? convSnap.data()
+          : {
+              modo: 'auto',
+              mensagens: [],
+              telefone
+            };
 
       conversa.mensagens =
         conversa.mensagens || [];
@@ -594,35 +887,42 @@ export default async function handler(req, res) {
       conversa.mensagens.push({
         de: 'lead',
         texto: textoRecebido,
-        em: new Date().toISOString()
+        em:
+          new Date().toISOString()
       });
 
-      // =====================================================
-      // CONTAR RESPOSTAS DA IA
-      // =====================================================
+      // -----------------------------------------------------
+      // CONTAGEM IA
+      // -----------------------------------------------------
 
       const totalTrocasAuto =
         conversa.mensagens.filter(
           (m) => m.de === 'ia'
         ).length;
 
-      // =====================================================
-      // IA RESPONDE
-      // =====================================================
+      // -----------------------------------------------------
+      // IA
+      // -----------------------------------------------------
 
       if (
         conversa.modo === 'auto' &&
-        totalTrocasAuto < LIMITE_MENSAGENS_AUTO
+        totalTrocasAuto <
+          LIMITE_MENSAGENS_AUTO
       ) {
+
         const historicoOpenAI =
           conversa.mensagens
             .slice(-10)
             .map((m) => ({
+
               role:
                 m.de === 'lead'
                   ? 'user'
                   : 'assistant',
-              content: m.texto
+
+              content:
+                m.texto
+
             }));
 
         const respostaIA =
@@ -633,7 +933,8 @@ export default async function handler(req, res) {
         conversa.mensagens.push({
           de: 'ia',
           texto: respostaIA,
-          em: new Date().toISOString()
+          em:
+            new Date().toISOString()
         });
 
         await enviarMensagemWhatsApp(
@@ -643,12 +944,11 @@ export default async function handler(req, res) {
           config.phone_number_id
         );
 
-        // Após atingir o limite,
-        // encaminha para atendimento humano.
         if (
           totalTrocasAuto + 1 >=
           LIMITE_MENSAGENS_AUTO
         ) {
+
           conversa.modo =
             'aguardando_humano';
         }
@@ -656,13 +956,14 @@ export default async function handler(req, res) {
       } else if (
         conversa.modo === 'auto'
       ) {
+
         conversa.modo =
           'aguardando_humano';
       }
 
-      // =====================================================
-      // SALVAR CONVERSA
-      // =====================================================
+      // -----------------------------------------------------
+      // SALVAR
+      // -----------------------------------------------------
 
       conversa.ultimaMensagemEm =
         FieldValue.serverTimestamp();
@@ -676,22 +977,25 @@ export default async function handler(req, res) {
 
       return res
         .status(200)
-        .send('EVENT_RECEIVED');
+        .send(
+          'EVENT_RECEIVED'
+        );
 
     } catch (e) {
+
       console.error(e);
 
       return res
         .status(500)
-        .send('Erro interno.');
+        .send(
+          'Erro interno.'
+        );
     }
   }
 
-  // =========================================================
-  // MÉTODO NÃO PERMITIDO
-  // =========================================================
-
   return res
     .status(405)
-    .send('Método não permitido.');
+    .send(
+      'Método não permitido.'
+    );
 }
