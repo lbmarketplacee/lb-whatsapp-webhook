@@ -101,6 +101,7 @@ async function trocarCodePorToken(code, appId, appSecret) {
 
   // URLs que estão cadastradas no Meta
   const redirectUris = [
+    '', // Login for Business (config_id) costuma exigir redirect_uri vazio explicitamente
     'https://sistema.lbmarketplace.com.br/whatsapp-callback.html',
     'https://sistema.lbmarketplace.com.br/'
   ];
