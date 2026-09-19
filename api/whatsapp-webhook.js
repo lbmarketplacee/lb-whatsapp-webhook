@@ -99,166 +99,33 @@ async function enviarMensagemWhatsApp(
 
 async function trocarCodePorToken(code, appId, appSecret) {
 
-  // URLs que estão cadastradas no Meta
-  const redirectUris = [
-    '', // Login for Business (config_id) costuma exigir redirect_uri vazio explicitamente
-    'https://sistema.lbmarketplace.com.br/whatsapp-callback.html',
-    'https://sistema.lbmarketplace.com.br/'
-  ];
-
-  let ultimoErro = null;
-
-  // -------------------------------------------------------
-  // PRIMEIRA TENTATIVA:
-  // POST SEM REDIRECT_URI
-  // -------------------------------------------------------
-
+  // Conforme documentação oficial da Meta: SEM redirect_uri, via GET.
   try {
-    console.log(
-      'Tentativa 1: troca do code sem redirect_uri'
-    );
+    const url = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${encodeURIComponent(appId)}&client_secret=${encodeURIComponent(appSecret)}&code=${encodeURIComponent(code)}`;
 
-    const params = new URLSearchParams({
-      client_id: appId,
-      client_secret: appSecret,
-      code: code
-    });
+    console.log('Trocando code por token (GET, sem redirect_uri)');
 
-    const response = await fetch(
-      'https://graph.facebook.com/v23.0/oauth/access_token',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type':
-            'application/x-www-form-urlencoded'
-        },
-        body: params.toString()
-      }
-    );
-
+    const response = await fetch(url, { method: 'GET' });
     const texto = await response.text();
-
-    console.log(
-      'Resposta tentativa 1:',
-      texto
-    );
+    console.log('Resposta da troca de code:', texto);
 
     if (response.ok) {
       try {
         const dados = JSON.parse(texto);
-
         if (dados.access_token) {
-          return {
-            sucesso: true,
-            dados
-          };
+          return { sucesso: true, dados };
         }
       } catch (e) {
-        console.error(
-          'Resposta da tentativa 1 não é JSON.'
-        );
+        console.error('Resposta não é JSON:', texto);
       }
     }
 
-    ultimoErro = texto;
+    return { sucesso: false, erro: texto };
 
   } catch (erro) {
-    console.error(
-      'Erro tentativa 1:',
-      erro
-    );
-
-    ultimoErro = erro.message;
+    console.error('Erro na troca de code:', erro);
+    return { sucesso: false, erro: erro.message };
   }
-
-  // -------------------------------------------------------
-  // SEGUNDA E TERCEIRA TENTATIVA:
-  // COM AS DUAS REDIRECT URIS CADASTRADAS
-  // -------------------------------------------------------
-
-  for (const redirectUri of redirectUris) {
-
-    try {
-
-      console.log(
-        'Tentando redirect_uri:',
-        redirectUri
-      );
-
-      const params = new URLSearchParams({
-        client_id: appId,
-        client_secret: appSecret,
-        code: code,
-        redirect_uri: redirectUri
-      });
-
-      const response = await fetch(
-        'https://graph.facebook.com/v23.0/oauth/access_token',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type':
-              'application/x-www-form-urlencoded'
-          },
-          body: params.toString()
-        }
-      );
-
-      const texto = await response.text();
-
-      console.log(
-        'Resposta para',
-        redirectUri,
-        ':',
-        texto
-      );
-
-      if (response.ok) {
-
-        try {
-
-          const dados = JSON.parse(texto);
-
-          if (dados.access_token) {
-
-            console.log(
-              'CODE TROCAD0 COM SUCESSO USANDO:',
-              redirectUri
-            );
-
-            return {
-              sucesso: true,
-              dados
-            };
-          }
-
-        } catch (e) {
-
-          console.error(
-            'Resposta não é JSON:',
-            texto
-          );
-        }
-      }
-
-      ultimoErro = texto;
-
-    } catch (erro) {
-
-      console.error(
-        'Erro tentando',
-        redirectUri,
-        erro
-      );
-
-      ultimoErro = erro.message;
-    }
-  }
-
-  return {
-    sucesso: false,
-    erro: ultimoErro
-  };
 }
 
 export default async function handler(req, res) {
