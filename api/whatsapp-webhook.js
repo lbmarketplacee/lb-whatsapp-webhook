@@ -94,11 +94,12 @@ async function enviarMensagemWhatsApp(
 }
 
 // Envia mensagem via TEMPLATE aprovado — obrigatório pra iniciar contato com quem nunca te escreveu
-// (mensagem de texto livre só é permitida depois que o cliente manda a primeira mensagem)
+// (mensagem de texto livre só é permitida depois que o cliente manda a primeira mensagem).
+// A Meta agora exige variáveis NOMEADAS no corpo (ex: {{nome_lead}}), não mais {{1}}/{{2}}.
 async function enviarTemplateWhatsApp(
   telefone,
   nomeTemplate,
-  parametros,
+  parametrosNomeados,
   accessToken,
   phoneNumberId
 ) {
@@ -120,7 +121,11 @@ async function enviarTemplateWhatsApp(
           components: [
             {
               type: 'body',
-              parameters: parametros.map((p) => ({ type: 'text', text: p }))
+              parameters: Object.entries(parametrosNomeados).map(([nome, valor]) => ({
+                type: 'text',
+                parameter_name: nome,
+                text: valor
+              }))
             }
           ]
         }
@@ -342,7 +347,7 @@ export default async function handler(req, res) {
       const resultadoEnvio = await enviarTemplateWhatsApp(
         telefone,
         'qualificacao_lead_novo',
-        [nomeParaTemplate, segmentoParaTemplate],
+        { nome_lead: nomeParaTemplate, segmento: segmentoParaTemplate },
         config.access_token,
         config.phone_number_id
       );
