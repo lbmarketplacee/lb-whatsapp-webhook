@@ -17,7 +17,7 @@ if (!getApps().length) {
 
 const db = getFirestore();
 
-const LIMITE_MENSAGENS_AUTO = 4;
+const LIMITE_MENSAGENS_AUTO = 15;
 
 const SYSTEM_PROMPT_LBIA_WHATSAPP = `Você é a atendente virtual da LB Marketplace Assessoria, uma agência especializada em gestão de marketplaces (Shopee, Mercado Livre, TikTok Shop, Shein) para lojistas, distribuidores, fabricantes e importadores.
 
@@ -91,6 +91,49 @@ async function enviarMensagemWhatsApp(
       erro
     );
   }
+}
+
+// Envia mensagem via TEMPLATE aprovado — obrigatório pra iniciar contato com quem nunca te escreveu
+// (mensagem de texto livre só é permitida depois que o cliente manda a primeira mensagem)
+async function enviarTemplateWhatsApp(
+  telefone,
+  nomeTemplate,
+  parametros,
+  accessToken,
+  phoneNumberId
+) {
+  const resp = await fetch(
+    `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: telefone,
+        type: 'template',
+        template: {
+          name: nomeTemplate,
+          language: { code: 'pt_BR' },
+          components: [
+            {
+              type: 'body',
+              parameters: parametros.map((p) => ({ type: 'text', text: p }))
+            }
+          ]
+        }
+      })
+    }
+  );
+
+  const data = await resp.json();
+  if (!resp.ok) {
+    console.error('Erro ao enviar template WhatsApp:', data);
+    return { sucesso: false, erro: data.error?.message || 'Erro ao enviar template.' };
+  }
+  return { sucesso: true, data };
 }
 
 // =========================================================
@@ -247,6 +290,93 @@ export default async function handler(req, res) {
 
       console.error(e);
 
+      return res.status(500).json({
+        erro: e.message
+      });
+    }
+  }
+
+  // =========================================================
+  // QUALIFICAR LEAD NOVO — manda a 1ª mensagem automática (via IA)
+  // assim que um lead cai no CRM, pra qualificar antes de alguém da equipe entrar
+  // =========================================================
+
+  if (
+    req.method === 'POST' &&
+    req.body?.acao === 'qualificar_lead_novo'
+  ) {
+
+    try {
+
+      const {
+        telefone,
+        nome,
+        nicho,
+        tipoServico,
+        respostasTypebot
+      } = req.body;
+
+      if (!telefone) {
+        return res.status(400).json({
+          erro: 'telefone é obrigatório.'
+        });
+      }
+
+      const configSnap =
+        await db
+          .collection('configuracoes')
+          .doc('whatsapp')
+          .get();
+
+      if (!configSnap.exists) {
+        return res.status(400).json({
+          erro: 'WhatsApp não conectado.'
+        });
+      }
+
+      const config = configSnap.data();
+
+      const nomeParaTemplate = (nome && nome.trim()) || 'tudo bem';
+      const segmentoParaTemplate = (nicho && nicho.trim()) || (tipoServico && tipoServico.trim()) || 'e-commerce';
+
+      const resultadoEnvio = await enviarTemplateWhatsApp(
+        telefone,
+        'qualificacao_lead_novo',
+        [nomeParaTemplate, segmentoParaTemplate],
+        config.access_token,
+        config.phone_number_id
+      );
+
+      if (!resultadoEnvio.sucesso) {
+        return res.status(200).json({ ok: false, erro: resultadoEnvio.erro });
+      }
+
+      const textoEnviado = `Olá ${nomeParaTemplate}! Aqui é a equipe da LB Marketplace 👋 Vimos seu interesse em nossos serviços para o segmento de ${segmentoParaTemplate}. Você já vende em algum marketplace hoje?`;
+
+      const convRef =
+        db.collection('whatsappConversas').doc(telefone);
+
+      await convRef.set(
+        {
+          modo: 'auto',
+          leadNome: nome || null,
+          mensagens: FieldValue.arrayUnion({
+            de: 'ia',
+            texto: textoEnviado,
+            em: new Date().toISOString()
+          }),
+          ultimaMensagemEm: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+
+      return res.status(200).json({
+        ok: true,
+        mensagem: textoEnviado
+      });
+
+    } catch (e) {
+      console.error(e);
       return res.status(500).json({
         erro: e.message
       });
