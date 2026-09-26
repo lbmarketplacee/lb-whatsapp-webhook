@@ -821,6 +821,32 @@ export default async function handler(req, res) {
 
       const mensagemRecebida =
         valor?.messages?.[0];
+      // =========================================================
+// DIAGNÓSTICO DOS STATUS ENVIADOS PELA META
+// =========================================================
+
+const statuses =
+  valor?.statuses || [];
+
+if (statuses.length) {
+  for (const status of statuses) {
+    console.log('======================================');
+    console.log('STATUS DA MENSAGEM WHATSAPP');
+    console.log('Message ID:', status.id || null);
+    console.log('Status:', status.status || null);
+    console.log('Recipient ID:', status.recipient_id || null);
+    console.log('Timestamp:', status.timestamp || null);
+
+    if (status.errors) {
+      console.log(
+        'ERROS DA META:',
+        JSON.stringify(status.errors)
+      );
+    }
+
+    console.log('======================================');
+  }
+}
 
       if (
         !mensagemRecebida ||
