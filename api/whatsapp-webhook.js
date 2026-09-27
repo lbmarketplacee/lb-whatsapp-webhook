@@ -103,6 +103,22 @@ async function enviarTemplateWhatsApp(
   accessToken,
   phoneNumberId
 ) {
+  const idiomaTemplate = 'pt_BR';
+  const parametrosParaEnvio = Object.entries(parametrosNomeados).map(([nome, valor]) => ({
+    type: 'text',
+    parameter_name: nome,
+    text: valor
+  }));
+
+  // === DIAGNÓSTICO — log do que está sendo enviado (sem access_token) ===
+  console.log('[DIAGNOSTICO enviarTemplateWhatsApp] Disparando template:', JSON.stringify({
+    telefoneDestino: telefone,
+    nomeTemplate,
+    idioma: idiomaTemplate,
+    parametrosEnviados: parametrosParaEnvio,
+    phoneNumberId
+  }));
+
   const resp = await fetch(
     `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
     {
@@ -117,15 +133,11 @@ async function enviarTemplateWhatsApp(
         type: 'template',
         template: {
           name: nomeTemplate,
-          language: { code: 'pt_BR' },
+          language: { code: idiomaTemplate },
           components: [
             {
               type: 'body',
-              parameters: Object.entries(parametrosNomeados).map(([nome, valor]) => ({
-                type: 'text',
-                parameter_name: nome,
-                text: valor
-              }))
+              parameters: parametrosParaEnvio
             }
           ]
         }
@@ -134,6 +146,14 @@ async function enviarTemplateWhatsApp(
   );
 
   const data = await resp.json();
+
+  // === DIAGNÓSTICO — status HTTP, JSON completo da Meta e message_id ===
+  console.log('[DIAGNOSTICO enviarTemplateWhatsApp] Resposta da Meta:', JSON.stringify({
+    httpStatus: resp.status,
+    respostaCompleta: data,
+    messageId: data?.messages?.[0]?.id || null
+  }));
+
   if (!resp.ok) {
     console.error('Erro ao enviar template WhatsApp:', data);
     return { sucesso: false, erro: data.error?.message || 'Erro ao enviar template.' };
@@ -821,32 +841,6 @@ export default async function handler(req, res) {
 
       const mensagemRecebida =
         valor?.messages?.[0];
-      // =========================================================
-// DIAGNÓSTICO DOS STATUS ENVIADOS PELA META
-// =========================================================
-
-const statuses =
-  valor?.statuses || [];
-
-if (statuses.length) {
-  for (const status of statuses) {
-    console.log('======================================');
-    console.log('STATUS DA MENSAGEM WHATSAPP');
-    console.log('Message ID:', status.id || null);
-    console.log('Status:', status.status || null);
-    console.log('Recipient ID:', status.recipient_id || null);
-    console.log('Timestamp:', status.timestamp || null);
-
-    if (status.errors) {
-      console.log(
-        'ERROS DA META:',
-        JSON.stringify(status.errors)
-      );
-    }
-
-    console.log('======================================');
-  }
-}
 
       if (
         !mensagemRecebida ||
