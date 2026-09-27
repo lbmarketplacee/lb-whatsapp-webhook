@@ -275,6 +275,48 @@ export default async function handler(req, res) {
       const config =
         configSnap.data();
 
+      // -----------------------------------------------------
+      // JANELA DE 24H — mensagem de texto livre só é permitida
+      // se o LEAD mandou alguma mensagem nas últimas 24h.
+      // Sem isso, a Meta recusa com erro 131047.
+      // -----------------------------------------------------
+
+      const convRefCheck =
+        db
+          .collection('whatsappConversas')
+          .doc(telefone);
+
+      const convSnapCheck =
+        await convRefCheck.get();
+
+      const mensagensExistentes =
+        convSnapCheck.exists
+          ? (convSnapCheck.data().mensagens || [])
+          : [];
+
+      const mensagensDoLead =
+        mensagensExistentes.filter(
+          m => m.de === 'lead'
+        );
+
+      const ultimaMsgLead =
+        mensagensDoLead[mensagensDoLead.length - 1];
+
+      const HORAS_24_EM_MS =
+        24 * 60 * 60 * 1000;
+
+      const janelaAberta =
+        ultimaMsgLead &&
+        (Date.now() - new Date(ultimaMsgLead.em).getTime()) < HORAS_24_EM_MS;
+
+      if (!janelaAberta) {
+        return res.status(200).json({
+          ok: false,
+          erro:
+            'Esse lead não mandou mensagem nas últimas 24h — a Meta não permite texto livre nesse caso (só mensagem de modelo aprovado). Não é possível enviar por aqui.'
+        });
+      }
+
       await enviarMensagemWhatsApp(
         telefone,
         texto,
