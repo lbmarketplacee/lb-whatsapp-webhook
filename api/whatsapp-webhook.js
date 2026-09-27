@@ -842,6 +842,20 @@ export default async function handler(req, res) {
       const mensagemRecebida =
         valor?.messages?.[0];
 
+      // === DIAGNÓSTICO — status de entrega (sent/delivered/read/failed) que a Meta manda depois do envio ===
+      const statusRecebido =
+        valor?.statuses?.[0];
+
+      if (statusRecebido) {
+        console.log('[DIAGNOSTICO webhook Meta] Status de entrega recebido:', JSON.stringify({
+          messageId: statusRecebido.id || null,
+          status: statusRecebido.status || null,
+          telefoneDestino: statusRecebido.recipient_id || null,
+          timestamp: statusRecebido.timestamp || null,
+          erros: statusRecebido.errors || null
+        }));
+      }
+
       if (
         !mensagemRecebida ||
         mensagemRecebida.type !== 'text'
