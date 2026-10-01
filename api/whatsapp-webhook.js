@@ -418,7 +418,9 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: false, erro: resultadoEnvio.erro });
       }
 
-      const textoEnviado = `Olá ${nomeParaTemplate}! Aqui é a equipe da LB Marketplace 👋 Vimos seu interesse em nossos serviços para o segmento de ${segmentoParaTemplate}. Você já vende em algum marketplace hoje?`;
+      // Registro fiel do que foi mandado de verdade (template aprovado, não um texto inventado) — evita
+      // a aba Conversas mostrar uma frase que nunca foi o que a Meta realmente enviou.
+      const textoEnviado = `[Template aprovado "qualificacao_lead_novo" enviado — nome_lead: "${nomeParaTemplate}", segmento: "${segmentoParaTemplate}"]`;
 
       const convRef =
         db.collection('whatsappConversas').doc(telefone);
