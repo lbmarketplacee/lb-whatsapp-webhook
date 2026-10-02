@@ -84,13 +84,12 @@ async function enviarMensagemWhatsApp(
     }
   );
 
+  const data = await resp.json();
   if (!resp.ok) {
-    const erro = await resp.text();
-    console.error(
-      'Erro ao enviar mensagem WhatsApp:',
-      erro
-    );
+    console.error('Erro ao enviar mensagem WhatsApp:', data);
+    return { sucesso: false, erro: data?.error?.message || 'Erro ao enviar mensagem.' };
   }
+  return { sucesso: true, messageId: data?.messages?.[0]?.id || null };
 }
 
 // Envia mensagem via TEMPLATE aprovado — obrigatório pra iniciar contato com quem nunca te escreveu
@@ -317,12 +316,20 @@ export default async function handler(req, res) {
         });
       }
 
-      await enviarMensagemWhatsApp(
-        telefone,
-        texto,
-        config.access_token,
-        config.phone_number_id
-      );
+      const resultadoEnvioManual =
+        await enviarMensagemWhatsApp(
+          telefone,
+          texto,
+          config.access_token,
+          config.phone_number_id
+        );
+
+      if (!resultadoEnvioManual.sucesso) {
+        return res.status(200).json({
+          ok: false,
+          erro: resultadoEnvioManual.erro
+        });
+      }
 
       const convRef =
         db
@@ -335,10 +342,12 @@ export default async function handler(req, res) {
 
           mensagens:
             FieldValue.arrayUnion({
+              id: resultadoEnvioManual.messageId || null,
               de: 'equipe',
               texto,
               em:
-                new Date().toISOString()
+                new Date().toISOString(),
+              status: 'enviada'
             }),
 
           ultimaMensagemEm:
@@ -430,9 +439,11 @@ export default async function handler(req, res) {
           modo: 'auto',
           leadNome: nome || null,
           mensagens: FieldValue.arrayUnion({
+            id: resultadoEnvio.data?.messages?.[0]?.id || null,
             de: 'ia',
             texto: textoEnviado,
-            em: new Date().toISOString()
+            em: new Date().toISOString(),
+            status: 'enviada'
           }),
           ultimaMensagemEm: FieldValue.serverTimestamp()
         },
@@ -898,6 +909,31 @@ export default async function handler(req, res) {
           timestamp: statusRecebido.timestamp || null,
           erros: statusRecebido.errors || null
         }));
+
+        // Atualiza o "✓✓ visto" na aba Conversas — acha a mensagem pelo id (wamid) e marca o status.
+        // Só sent/delivered/read/failed chegam aqui; qualquer um guardamos, pra mostrar o selo certo na tela.
+        try {
+          const telefoneDestino = statusRecebido.recipient_id;
+          const idMensagem = statusRecebido.id;
+          if (telefoneDestino && idMensagem) {
+            const convRefStatus = db.collection('whatsappConversas').doc(telefoneDestino);
+            const convSnapStatus = await convRefStatus.get();
+            if (convSnapStatus.exists) {
+              const mensagensAtuais = convSnapStatus.data().mensagens || [];
+              let mudou = false;
+              const mensagensAtualizadas = mensagensAtuais.map((m) => {
+                if (m.id && m.id === idMensagem && m.status !== statusRecebido.status) {
+                  mudou = true;
+                  return { ...m, status: statusRecebido.status };
+                }
+                return m;
+              });
+              if (mudou) await convRefStatus.update({ mensagens: mensagensAtualizadas });
+            }
+          }
+        } catch (e) {
+          console.error('[DIAGNOSTICO webhook Meta] não conseguiu marcar o status da mensagem:', e.message);
+        }
       }
 
       if (
@@ -1011,19 +1047,22 @@ export default async function handler(req, res) {
             historicoOpenAI
           );
 
+        const resultadoEnvioIA =
+          await enviarMensagemWhatsApp(
+            telefone,
+            respostaIA,
+            config.access_token,
+            config.phone_number_id
+          );
+
         conversa.mensagens.push({
+          id: resultadoEnvioIA.messageId || null,
           de: 'ia',
           texto: respostaIA,
           em:
-            new Date().toISOString()
+            new Date().toISOString(),
+          status: resultadoEnvioIA.sucesso ? 'enviada' : 'falhou'
         });
-
-        await enviarMensagemWhatsApp(
-          telefone,
-          respostaIA,
-          config.access_token,
-          config.phone_number_id
-        );
 
         if (
           totalTrocasAuto + 1 >=
